@@ -140,3 +140,55 @@ test('rejects a non-http scheme only when file URLs are disabled', () => {
   assert.throws(() => parseFetchUrl('ftp://example.com/', { ...DEFAULTS, allowFileUrls: false }), /unsupported URL scheme/)
   assert.equal(parseFetchUrl('file:///etc/hosts').protocol, 'file:')
 })
+test('decodes a UTF-16 body instead of calling it binary', async () => {
+  const utf16 = Buffer.from('<html><body>你好 UTF-16</body></html>', 'utf16le')
+  await withServer(
+    (request, response) => {
+      response.writeHead(200, { 'content-type': 'text/html; charset=utf-16le' })
+      response.end(utf16)
+    },
+    async (port) => {
+      const result = await provider().fetch({ url: `http://127.0.0.1:${port}/` })
+      assert.equal(result.body.kind, 'html')
+      assert.match(result.body.content, /你好 UTF-16/)
+    },
+  )
+})
+
+test('reports a declared binary type as bytes even when the body has no NUL', async () => {
+  const pdf = Buffer.from('%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n%%EOF\n')
+  await withServer(
+    (request, response) => {
+      response.writeHead(200, { 'content-type': 'application/pdf' })
+      response.end(pdf)
+    },
+    async (port) => {
+      const result = await provider().fetch({ url: `http://127.0.0.1:${port}/doc.pdf` })
+      assert.match(result.body.content, /二进制内容/)
+      assert.doesNotMatch(result.body.content, /%PDF/)
+    },
+  )
+})
+
+test('keeps image/svg+xml as text', async () => {
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg"><text>hi</text></svg>'
+  await withServer(
+    (request, response) => {
+      response.writeHead(200, { 'content-type': 'image/svg+xml' })
+      response.end(svg)
+    },
+    async (port) => {
+      const result = await provider().fetch({ url: `http://127.0.0.1:${port}/icon.svg` })
+      assert.match(result.body.content, /<svg/)
+      assert.doesNotMatch(result.body.content, /二进制内容/)
+    },
+  )
+})
+
+test('treats a file:// pdf as bytes by extension', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'web-fetch-open-'))
+  const file = join(dir, 'doc.pdf')
+  await writeFile(file, '%PDF-1.4\n%%EOF\n', 'utf8')
+  const result = await provider().fetch({ url: pathToFileURL(file).href })
+  assert.match(result.body.content, /二进制内容/)
+})

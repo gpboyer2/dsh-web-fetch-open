@@ -47,7 +47,7 @@ To verify, ask the agent to fetch `http://127.0.0.1:<your local port>/`.
 | Cross-origin redirects | refused | followed, up to 10 hops |
 | `user:pass@` in the URL | refused | sent as a Basic auth header |
 | Missing `Content-Type` | refused | sniffed as html / text |
-| Images, PDFs, archives | error | one-line notice, no error |
+| Images, PDFs, archives | error | one-line notice with the byte count; bytes never reach the model |
 | `file://` paths | unsupported | supported |
 | Size / chars / timeout | 5MB / 100k chars / 30s | 20MB / 500k chars / 25s |
 
@@ -63,8 +63,12 @@ agent cannot tell the difference.
   `NO_PROXY` and `NODE_USE_ENV_PROXY` from the launch environment keep working —
   public traffic still goes through Clash, and `NO_PROXY` addresses stay direct.
 - Redirects are followed manually, up to `maxRedirects`, across origins.
-- A missing or unknown `Content-Type` is sniffed from the body; binary payloads
-  get a short notice instead of an error.
+- A missing or unknown `Content-Type` is sniffed from the body.
+- Binary detection runs in order: declared text type, declared binary type,
+  `file://` extension, UTF-16 BOM, then a NUL probe. A `text/html; charset=utf-16`
+  body legitimately contains NUL bytes and is still decoded; an `application/pdf`
+  container without NUL is not dumped into the model as text. Binary payloads get
+  a short notice carrying the byte count instead of an error.
 - `file://` is read straight from disk, with the kind chosen by extension.
 
 ## Configuration
@@ -101,10 +105,10 @@ Override the plugin row in the profile's `cordis.patch.yml`:
 npm test
 ```
 
-Seven tests, all against a local loopback server and no network: loopback fetch,
-cross-origin redirect, missing content type and a binary payload, credentials in
-the URL, `file://`, private/CGNAT/fake-ip literals, and the `allowFileUrls: false`
-refusal.
+Eleven tests, all against a local loopback server and no network: loopback fetch,
+cross-origin redirect, missing content type, the binary notice, a UTF-16 body,
+`image/svg+xml` kept as text, a `file://` PDF judged by extension, credentials in
+the URL, private/CGNAT/fake-ip literals, and the `allowFileUrls: false` refusal.
 
 ## Known limits
 

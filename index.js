@@ -23,6 +23,7 @@
  */
 
 import { readFile, stat } from 'node:fs/promises'
+import { extname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 /** Provider id this plugin registers under; never `http`. */
@@ -156,6 +157,97 @@ export function looksBinary(bytes) {
   return false
 }
 
+/** Media prefixes that are never text, even when the body carries no NUL byte. */
+const BINARY_MEDIA_PREFIXES = ['image/', 'audio/', 'video/', 'font/']
+
+/**
+ * Content types rendered as bytes rather than text.
+ *
+ * `image/svg+xml` is deliberately absent: it is declared with an `image/` prefix
+ * but is ordinary text.
+ */
+const BINARY_CONTENT_TYPES = new Set([
+  'application/pdf',
+  'application/zip',
+  'application/gzip',
+  'application/x-gzip',
+  'application/x-tar',
+  'application/x-7z-compressed',
+  'application/x-rar-compressed',
+  'application/vnd.rar',
+  'application/x-bzip2',
+  'application/x-xz',
+  'application/zstd',
+  'application/octet-stream',
+  'application/wasm',
+  'application/java-archive',
+  'application/epub+zip',
+  'application/msword',
+  'application/vnd.ms-excel',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+])
+
+/** File extensions read as bytes on `file://`, where no content type exists. */
+const BINARY_EXTENSIONS = new Set([
+  '.pdf', '.zip', '.gz', '.tgz', '.bz2', '.xz', '.zst', '.7z', '.rar', '.tar',
+  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.tif', '.tiff', '.ico', '.avif', '.heic',
+  '.mp3', '.m4a', '.wav', '.flac', '.ogg', '.oga', '.mp4', '.m4v', '.mov', '.avi', '.mkv', '.webm',
+  '.woff', '.woff2', '.ttf', '.otf', '.eot',
+  '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.epub',
+  '.dmg', '.exe', '.msi', '.so', '.dylib', '.dll', '.bin', '.dat',
+  '.sqlite', '.db', '.parquet', '.arrow', '.pyc', '.class', '.jar', '.wasm',
+])
+
+/**
+ * Whether a declared content type is a byte container rather than text.
+ *
+ * @param {string|null} header - raw `Content-Type` value.
+ * @returns {boolean} true when the body must not be decoded as text.
+ */
+export function isBinaryContentType(header) {
+  if (header === null || header.trim() === '') return false
+  const type = header.split(';')[0].trim().toLowerCase()
+  if (type === 'image/svg+xml') return false
+  if (BINARY_CONTENT_TYPES.has(type)) return true
+  return BINARY_MEDIA_PREFIXES.some((prefix) => type.startsWith(prefix))
+}
+
+/**
+ * The charset a UTF-16 byte-order mark implies, if the body carries one.
+ *
+ * @param {Uint8Array} bytes - body bytes.
+ * @returns {'utf-16le'|'utf-16be'|undefined} the implied charset.
+ */
+export function bomCharsetOf(bytes) {
+  if (bytes.byteLength < 2) return undefined
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) return 'utf-16le'
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) return 'utf-16be'
+  return undefined
+}
+
+/**
+ * Decide whether a payload is binary.
+ *
+ * A declared text type wins outright: `text/html; charset=utf-16le` legitimately
+ * contains NUL bytes, and decoding it as UTF-8 would destroy it. Otherwise the
+ * declared content type, the `file://` extension, and finally a NUL probe decide.
+ *
+ * @param {Uint8Array} bytes - body bytes.
+ * @param {string|null} header - raw `Content-Type` value, null for `file://`.
+ * @param {string} [extension] - lowercase file extension for `file://` reads.
+ * @returns {boolean} true when the body should be reported as undecompiled bytes.
+ */
+export function isBinaryPayload(bytes, header, extension) {
+  if (extension !== undefined && BINARY_EXTENSIONS.has(extension)) return true
+  if (classifyContentType(header) !== undefined) return false
+  if (isBinaryContentType(header)) return true
+  if (bomCharsetOf(bytes) !== undefined) return false
+  return looksBinary(bytes)
+}
+
 /**
  * Sniff the body kind and text encoding when the response states neither.
  *
@@ -275,7 +367,8 @@ async function readFileUrl(url, limits) {
   const bytes = await readFile(path)
   const truncated = bytes.byteLength > limits.maxResponseBytes
   const capped = truncated ? bytes.subarray(0, limits.maxResponseBytes) : bytes
-  return resultOf(url, 200, capped, truncated, sniffBody(capped, null), limits, path)
+  const binary = isBinaryPayload(capped, null, extname(path).toLowerCase())
+  return resultOf(url, 200, capped, truncated, sniffBody(capped, null), limits, path, binary)
 }
 
 /**
@@ -288,20 +381,24 @@ async function readFileUrl(url, limits) {
  * @param {{ kind: 'html'|'text', charset: string }} shape - sniffed body shape.
  * @param {object} limits - resolved limits.
  * @param {string} [binaryLabel] - file path used when the payload is binary.
+ * @param {boolean} [binary] - whether the payload is bytes, decided by `isBinaryPayload`.
  * @returns {object} the result value.
  */
-function resultOf(url, statusCode, bytes, truncatedByBytes, shape, limits, binaryLabel) {
-  if (looksBinary(bytes)) {
+function resultOf(url, statusCode, bytes, truncatedByBytes, shape, limits, binaryLabel, binary = false) {
+  if (binary) {
     const label = binaryLabel === undefined ? url.href : binaryLabel
     const tail = truncatedByBytes ? `，已截断到前 ${limits.maxResponseBytes} 字节` : ''
     return {
       url: url.href,
       statusCode,
-      body: { kind: 'text', content: `[二进制内容：${label}，共 ${bytes.byteLength} 字节${tail}，未解码]` },
+      body: {
+        kind: 'text',
+        content: `[二进制内容：${label}，共 ${bytes.byteLength} 字节${tail}，未返回字节；需要原文件请用 bash 下载]`,
+      },
       truncated: truncatedByBytes,
     }
   }
-  let content = decodeBody(bytes, shape.charset)
+  let content = decodeBody(bytes, bomCharsetOf(bytes) ?? shape.charset)
   let truncatedByChars = false
   if (content.length > limits.maxBodyChars) {
     content = content.slice(0, limits.maxBodyChars)
@@ -378,7 +475,7 @@ export class OpenFetchProvider {
       if (REDIRECT_STATUSES.has(response.status)) {
         const location = response.headers.get('location')
         await response.body?.cancel()
-        if (location === null) return resultOf(current, response.status, new Uint8Array(0), false, { kind: 'text', charset: 'utf-8' }, this.limits)
+        if (location === null) return resultOf(current, response.status, new Uint8Array(0), false, { kind: 'text', charset: 'utf-8' }, this.limits, undefined, false)
         if (redirects >= this.limits.maxRedirects) {
           throw webError(`exceeded the maximum of ${this.limits.maxRedirects} redirects`, 'WEB_REDIRECT_BLOCKED')
         }
@@ -398,7 +495,7 @@ export class OpenFetchProvider {
 
       const header = response.headers.get('content-type')
       const { bytes, truncated } = await readCappedBytes(response, this.limits)
-      return resultOf(current, response.status, bytes, truncated, sniffBody(bytes, header), this.limits)
+      return resultOf(current, response.status, bytes, truncated, sniffBody(bytes, header), this.limits, undefined, isBinaryPayload(bytes, header))
     }
   }
 }

@@ -1,6 +1,6 @@
 {
   "name": "dsh-web-fetch-open",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "让 web_fetch 能抓 localhost、内网、link-local 与 file:// 路径。",
   "license": "MIT",
   "meta": {

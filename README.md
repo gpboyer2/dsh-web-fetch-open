@@ -43,7 +43,7 @@ dsh plugin --profile desktop add link:$HOME/.dsh/plugins/dsh-web-fetch-open
 | 跨域重定向 | 拒绝 | 跟随，最多 10 跳 |
 | URL 里带 `user:pass@` | 拒绝 | 转成 Basic 认证头发送 |
 | 没有 `Content-Type` | 拒绝 | 按内容嗅探 html / text |
-| 图片、PDF、压缩包等二进制 | 报错 | 返回一行说明，不报错 |
+| 图片、PDF、压缩包等二进制 | 报错 | 返回一行说明（含字节数），字节不进上下文 |
 | `file://` 本地文件 | 不支持 | 支持 |
 | 大小 / 字符 / 超时 | 5MB / 10 万字符 / 30s | 20MB / 50 万字符 / 25s |
 
@@ -54,7 +54,8 @@ dsh plugin --profile desktop add link:$HOME/.dsh/plugins/dsh-web-fetch-open
 - 地址不做私网/保留段过滤：只校验协议（`http` / `https` / 按配置的 `file`）。
 - 网络仍然走全局 `fetch`，所以启动环境里的 `HTTP_PROXY`、`HTTPS_PROXY`、`NO_PROXY`、`NODE_USE_ENV_PROXY` 照旧生效——Clash 开着时外网仍从代理出去，`NO_PROXY` 里的本地地址直连。
 - 重定向自己跟，最多 `maxRedirects` 跳，跨域也跟。
-- `Content-Type` 缺失或不认识时按内容嗅探；二进制不报错，返回一句说明。
+- `Content-Type` 缺失或不认识时按内容嗅探。
+- 是否二进制按「声明的文本类型 → 声明的二进制类型 → `file://` 扩展名 → UTF-16 BOM → NUL 探测」依次判定：`text/html; charset=utf-16` 这种正文里天然带 NUL 的文本仍按文本解码，`application/pdf` 这种没有 NUL 的容器也不会被当文本吐出来。
 - `file://` 直接从磁盘读，按扩展名决定 html / text。
 
 ## 配置
@@ -91,13 +92,13 @@ dsh plugin --profile desktop add link:$HOME/.dsh/plugins/dsh-web-fetch-open
 npm test
 ```
 
-7 条测试，全部跑在本地回环上，不出网：回环地址抓取、跨域重定向、缺 `Content-Type` 与二进制、URL 内凭据、`file://`、私网/CGNAT/fake-ip 字面量、`allowFileUrls: false` 时的拒绝。
+11 条测试，全部跑在本地回环上，不出网：回环地址抓取、跨域重定向、缺 `Content-Type`、二进制说明、UTF-16 正文、`image/svg+xml` 按文本、`file://` 的 PDF 按扩展名、URL 内凭据、私网/CGNAT/fake-ip 字面量、`allowFileUrls: false` 时的拒绝。
 
 ## 已知边界
 
 - **装上就是真的能访问内网。** 没有白名单、没有网段排除。要在不可信环境里用，自己先想清楚。
 - **`file://` 读的是运行 DSH 那个用户能读的一切文件**，同样没有路径白名单。
-- 二进制（图片、PDF、压缩包）只返回一句「这是二进制内容」，不会把字节交给模型。
+- 二进制（图片、PDF、压缩包）只返回一句说明，字节不进上下文；需要原文件时让 agent 用 bash 下载。
 - 依赖 `ctx.web` 这个接缝与 `fetchProvider` 配置项，适配 DSH 0.2.x；上游改这个接缝就得跟着改。
 
 ## 许可证
