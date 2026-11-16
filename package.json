@@ -1,7 +1,7 @@
 {
   "name": "dsh-web-fetch-open",
   "version": "1.0.0",
-  "description": "DeepSeek Harness plugin: an unrestricted web_fetch provider that reaches localhost, private networks, link-local and CGNAT addresses, fake-ip ranges, and file:// paths.",
+  "description": "让 web_fetch 能抓 localhost、内网、link-local 与 file:// 路径。",
   "license": "MIT",
   "meta": {
     "title": "放开 web_fetch 的地址限制",
@@ -10,7 +10,8 @@
   "type": "module",
   "main": "index.js",
   "exports": {
-    ".": "./index.js"
+    ".": "./index.js",
+    "./package.json": "./package.json"
   },
   "scripts": {
     "test": "node --test test/*.test.mjs"
