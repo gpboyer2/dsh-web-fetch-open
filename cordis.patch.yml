@@ -1,0 +1,14 @@
+# Bundle patch for dsh-web-fetch-open.
+#
+# A compensating override replaces the complete `web` config, so the shipped
+# `searchProvider` value is repeated here. A user-layer cordis.patch.yml is
+# applied after bundles, so it still wins.
+- id: web
+  name: '@deepseek-ai/dsh-web'
+  config:
+    searchProvider: deepseek-official
+    fetchProvider: http-open
+
+- insert:
+    - id: web-fetch-open
+      name: dsh-web-fetch-open
