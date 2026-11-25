@@ -44,7 +44,7 @@ The plugin registers a fetch provider with id `http-open` and replaces `ctx.web`
 git clone https://github.com/gpboyer2/dsh-web-fetch-open.git ~/.dsh/plugins/dsh-web-fetch-open
 
 # 2. Register in a profile (CLI-managed profile, such as web / main)
-dsh plugin --profile <你的profile> add link:$HOME/.dsh/plugins/dsh-web-fetch-open
+dsh plugin --profile <your-profile> add link:$HOME/.dsh/plugins/dsh-web-fetch-open
 
 # 3. Restart DSH
 ```
