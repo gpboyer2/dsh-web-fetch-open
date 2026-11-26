@@ -47,13 +47,14 @@ This plugin registers a fetch provider with no private-network filtering and rep
 ## Quick start
 
 ```sh
-# 1. Clone to ~/.dsh/plugins/dsh-web-fetch-open
-git clone https://github.com/gpboyer2/dsh-web-fetch-open.git ~/.dsh/plugins/dsh-web-fetch-open
+# Install straight from GitHub (a CLI-managed profile such as web / main)
+dsh plugin --profile <your-profile> add github:gpboyer2/dsh-web-fetch-open
 
-# 2. Register in a profile (CLI-managed profile, such as web / main)
+# Local development: clone to ~/.dsh/plugins/dsh-web-fetch-open and install through a local link
+git clone https://github.com/gpboyer2/dsh-web-fetch-open.git ~/.dsh/plugins/dsh-web-fetch-open
 dsh plugin --profile <your-profile> add link:$HOME/.dsh/plugins/dsh-web-fetch-open
 
-# 3. Restart DSH
+# Restart DSH
 ```
 
 The `desktop` profile is owned by DeepSeek Harness.app, and the CLI command is rejected. For the desktop app, install from the in-app Plugins page, or edit the profile's `dependencies`, add a symlink, and restart.
